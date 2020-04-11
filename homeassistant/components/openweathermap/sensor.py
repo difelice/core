@@ -17,6 +17,7 @@ from homeassistant.const import (
     TEMP_FAHRENHEIT,
     UNIT_DEGREE,
     UNIT_PERCENTAGE,
+    UNIT_UV_INDEX,
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
@@ -44,6 +45,7 @@ SENSOR_TYPES = {
     "rain": ["Rain", "mm"],
     "snow": ["Snow", "mm"],
     "weather_code": ["Weather code", None],
+    "uv_index": ["UV index", UNIT_UV_INDEX],
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -139,6 +141,7 @@ class OpenWeatherMapSensor(Entity):
 
         data = self.owa_client.data
         fc_data = self.owa_client.fc_data
+        uvi_data = self.owa_client.uvi_data
 
         if data is None:
             return
@@ -184,6 +187,10 @@ class OpenWeatherMapSensor(Entity):
                 self._state = fc_data.get_weathers()[0].get_detailed_status()
             elif self.type == "weather_code":
                 self._state = data.get_weather_code()
+            elif self.type == "uv_index":
+                if uvi_data is None:
+                    return
+                self._state = uvi_data.get_value()
         except KeyError:
             self._state = None
             _LOGGER.warning("Condition is currently not available: %s", self.type)
@@ -200,6 +207,7 @@ class WeatherData:
         self.longitude = longitude
         self.data = None
         self.fc_data = None
+        self.uvi_data = None
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self):
@@ -210,11 +218,20 @@ class WeatherData:
             _LOGGER.error("Error when calling API to get weather at coordinates")
             obs = None
 
+        try:
+            uvi = self.owm.uvindex_around_coords(self.latitude, self.longitude)
+        except (APICallError, TypeError):
+            _LOGGER.error("Error when calling API to get UV Index at coordinates")
+            uvi = None
+
         if obs is None:
             _LOGGER.warning("Failed to fetch data")
             return
 
         self.data = obs.get_weather()
+
+        if uvi is not None:
+            self.uvi_data = uvi
 
         if self.forecast == 1:
             try:
